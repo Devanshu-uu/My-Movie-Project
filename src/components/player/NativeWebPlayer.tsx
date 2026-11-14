@@ -605,6 +605,9 @@ export default function NativeWebPlayer({
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
   const [volume, setVolume] = useState(1);
+  // Video picture brightness (100% = original)
+  const [brightness, setBrightness] = useState(100);
+  const [showBrightnessMenu, setShowBrightnessMenu] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
@@ -1653,11 +1656,11 @@ export default function NativeWebPlayer({
     streams: StreamItem[];
   }
 
-  // Deduplicated servers list (Server 1: SnapFlix Fast, Server 2: VidBolt, Server 3: VidRift, plus any extra Gateway engines)
+  // Deduplicated servers list (Server 1: DevaMovies Fast, Server 2: VidBolt, Server 3: VidRift, plus any extra Gateway engines)
   const availableServers = useMemo<UniqueServerOption[]>(() => {
     const list: UniqueServerOption[] = [];
 
-    // Server 1: SnapFlix Fast (Vidly)
+    // Server 1: DevaMovies Fast (Vidly)
     const vidlyStreams: StreamItem[] = [];
     vidlyResults.forEach((prov) => {
       prov.streams?.forEach((s) => {
@@ -1669,7 +1672,7 @@ export default function NativeWebPlayer({
     if (vidlyStreams.length > 0) {
       list.push({
         id: 'server-1-vidly',
-        name: 'Server 1: SnapFlix Fast',
+        name: 'Server 1: DevaMovies Fast',
         provider: 'vidly',
         streams: vidlyStreams,
       });
@@ -1790,7 +1793,7 @@ export default function NativeWebPlayer({
 
     // Refresh Audio Language for new server:
     // If the new server stream doesn't match activeLanguage, align with the new stream's language
-    const currentProvForStream = results?.find(p => p.providerName === (stream.providerName || (targetProvider === 'vidly' ? 'Vidly Edge' : targetProvider === 'vidbolt' ? 'SnapFlix VidBolt' : targetProvider === 'vidrift' ? 'VidRift Fast HLS' : 'Backup Cloud')));
+    const currentProvForStream = results?.find(p => p.providerName === (stream.providerName || (targetProvider === 'vidly' ? 'Vidly Edge' : targetProvider === 'vidbolt' ? 'VidBolt' : targetProvider === 'vidrift' ? 'VidRift Fast HLS' : 'Backup Cloud')));
     const streamLangs = getStreamAudioLanguages(stream, currentProvForStream?.infoTitle, originalLanguage);
     if (streamLangs.length > 0 && !streamLangs.includes(activeLanguage)) {
       if (streamLangs.includes('Hindi')) {
@@ -1802,7 +1805,7 @@ export default function NativeWebPlayer({
 
     setSelectedStream({
       ...stream,
-      providerName: stream.providerName || (targetProvider === 'vidly' ? 'Vidly Edge' : targetProvider === 'vidbolt' ? 'SnapFlix VidBolt' : targetProvider === 'vidrift' ? 'VidRift Fast HLS' : 'Backup Cloud'),
+      providerName: stream.providerName || (targetProvider === 'vidly' ? 'Vidly Edge' : targetProvider === 'vidbolt' ? 'VidBolt' : targetProvider === 'vidrift' ? 'VidRift Fast HLS' : 'Backup Cloud'),
     });
 
     setShowServerQualityMenu(false);
@@ -2386,7 +2389,7 @@ export default function NativeWebPlayer({
         }
         const gatewayData = await gwRes.json();
         if (!gatewayData?.success || (!Array.isArray(gatewayData?.streams) && !Array.isArray(gatewayData?.engines))) {
-          throw new Error(gatewayData?.message || 'No streams returned by SnapFlix Gateway.');
+          throw new Error(gatewayData?.message || 'No streams returned by DevaMovies Gateway.');
         }
 
         if (!active) return;
@@ -2397,7 +2400,7 @@ export default function NativeWebPlayer({
         const vbtStreams = (engineList.find((e) => e.engine === 'vidbolt')?.streams || []).filter(isPlayableStream);
         const vrfStreams = (engineList.find((e) => e.engine === 'vidrift')?.streams || []).filter(isPlayableStream);
 
-        const vlyRes: ProviderResult[] = vlyStreams.length > 0 ? [{ providerValue: 'vidly', providerName: 'SnapFlix Fast', streams: vlyStreams }] : [];
+        const vlyRes: ProviderResult[] = vlyStreams.length > 0 ? [{ providerValue: 'vidly', providerName: 'DevaMovies Fast', streams: vlyStreams }] : [];
         const vbtRes: ProviderResult[] = vbtStreams.length > 0 ? [{ providerValue: 'vidbolt', providerName: 'VidBolt Turbo', streams: vbtStreams }] : [];
         const vrfRes: ProviderResult[] = vrfStreams.length > 0 ? [{ providerValue: 'vidrift', providerName: 'VidRift HD', streams: vrfStreams }] : [];
 
@@ -2447,7 +2450,7 @@ export default function NativeWebPlayer({
           } else if (vlyStreams.some((s: StreamItem) => s.link === targetStream.link)) {
             chosenProvider = 'vidly';
             chosenResults = vlyRes;
-            chosen = { ...targetStream, providerName: 'SnapFlix Fast' };
+            chosen = { ...targetStream, providerName: 'DevaMovies Fast' };
           } else if (vbtStreams.some((s: StreamItem) => s.link === targetStream.link)) {
             chosenProvider = 'vidbolt';
             chosenResults = vbtRes;
@@ -2461,7 +2464,7 @@ export default function NativeWebPlayer({
           }
 
           if (chosenResults.length === 0 && playableStreams.length > 0) {
-            chosenResults = [{ providerValue: chosenProvider, providerName: targetStream.providerName || 'SnapFlix Gateway', streams: playableStreams }];
+            chosenResults = [{ providerValue: chosenProvider, providerName: targetStream.providerName || 'DevaMovies Gateway', streams: playableStreams }];
           }
 
           if (hindiStream) {
@@ -2977,6 +2980,7 @@ export default function NativeWebPlayer({
           if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
           setShowServerQualityMenu(false);
           setShowAudioMenu(false);
+          setShowBrightnessMenu(false);
           setShowMobileDrawer(false);
           setShowNextEpPreview(false);
         }
@@ -3318,6 +3322,7 @@ export default function NativeWebPlayer({
           "w-full h-full pointer-events-none select-none transition-all duration-300",
           fitMode === 'cover' ? 'object-cover' : fitMode === 'fill' ? 'object-fill' : 'object-contain'
         )}
+        style={{ filter: `brightness(${brightness}%)` }}
       >
         {activeSubtitleUri && (
           <track
@@ -3345,14 +3350,14 @@ export default function NativeWebPlayer({
         )}
       </video>
 
-      {/* 1.05 SnapFlix Discreet Watermark (Layered under all buttons and controls at z-10) */}
+      {/* 1.05 DevaMovies Discreet Watermark (Layered under all buttons and controls at z-10) */}
       <a
         href="https://snapflix.indevs.in"
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
         className="absolute top-3.5 right-3.5 sm:top-4 sm:right-4 z-10 flex items-center gap-1.5 opacity-40 hover:opacity-90 transition-opacity duration-300 pointer-events-auto select-none group"
-        title="Powered by SnapFlix (snapflix.indevs.in)"
+        title="Powered by DevaMovies"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-red-500 group-hover:scale-125 transition-transform drop-shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
         <span className="text-[11px] sm:text-xs font-black tracking-widest text-white/90 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] uppercase font-mono">
@@ -3740,8 +3745,62 @@ export default function NativeWebPlayer({
           </div>
         </div>
 
-        {/* Top-Right Actions: Quality + Audio & Subtitles + Next Episode */}
+        {/* Top-Right Actions: Brightness + Quality + Audio & Subtitles + Next Episode */}
         <div className="flex items-center gap-2 sm:gap-3 pointer-events-auto">
+          {/* Brightness control */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              aria-label="Adjust video brightness"
+              aria-expanded={showBrightnessMenu}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowBrightnessMenu((prev) => !prev);
+                setShowServerQualityMenu(false);
+                setShowAudioMenu(false);
+                setShowNextEpPreview(false);
+                triggerControls();
+              }}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-black/40 hover:bg-black/60 border border-white/15 text-xs font-semibold text-white/90 hover:text-white transition cursor-pointer backdrop-blur-md active:scale-95 shadow-md"
+              title="Brightness"
+            >
+              <span aria-hidden="true" className="text-sm">☀</span>
+              <span className="hidden sm:inline">Brightness</span>
+            </button>
+
+            {showBrightnessMenu && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="absolute top-full right-0 mt-2.5 w-[190px] sm:w-[220px] bg-[#141414]/95 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_16px_50px_rgba(0,0,0,0.95)] ring-1 ring-white/5 p-3 z-50 text-white"
+              >
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <span className="text-[11px] font-bold text-gray-200 uppercase tracking-wider">Brightness</span>
+                  <span className="text-xs font-semibold tabular-nums text-white">{brightness}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="200"
+                  step="1"
+                  value={brightness}
+                  aria-label="Video brightness"
+                  onChange={(e) => setBrightness(Number(e.target.value))}
+                  className="w-full h-1.5 accent-red-500 cursor-pointer"
+                />
+                <div className="flex items-center justify-between mt-1 text-[10px] text-gray-400">
+                  <span>0%</span><span>100%</span><span>200%</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBrightness(100)}
+                  className="mt-3 text-[11px] font-semibold text-gray-300 hover:text-white transition"
+                >
+                  Reset to 100%
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Quality Button with Clean Single-Column Popover (Servers managed automatically by Gateway) */}
           <div
             className="relative"
