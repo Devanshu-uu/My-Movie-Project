@@ -65,7 +65,7 @@ const BrandLogo: React.FC<BrandLogoProps> = ({
           }}
         >
           <textPath href={`#${pathId}`} startOffset="50%" textAnchor="middle">
-            SNAPFLIX
+            DEVAMOVIES
           </textPath>
         </text>
       </svg>

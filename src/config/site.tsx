@@ -14,7 +14,7 @@ import {
 import { TbFolder, TbFolderFilled } from "react-icons/tb";
 
 export const siteConfig: SiteConfigType = {
-  name: "SnapFlix",
+  name: "DevaMovies",
   description: "Watch Movies & TV Shows Online on SnapFlix - Your Private Streaming Platform.",
   favicon: "/snapflix.png",
   navItems: [
