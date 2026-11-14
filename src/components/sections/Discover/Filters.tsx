@@ -1,0 +1,311 @@
+"use client";
+
+import { tmdb } from "@/api/tmdb";
+import useDiscoverFilters from "@/hooks/useDiscoverFilters";
+import { cn } from "@/utils/helpers";
+import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { FaFilm, FaTv } from "react-icons/fa6";
+import { IoCheckmark, IoChevronDown, IoClose } from "react-icons/io5";
+
+// Fallback genres for movies & TV
+const MOVIE_GENRES_FALLBACK = [
+  { id: 28, name: "Action" },
+  { id: 12, name: "Adventure" },
+  { id: 16, name: "Animation" },
+  { id: 35, name: "Comedy" },
+  { id: 80, name: "Crime" },
+  { id: 99, name: "Documentary" },
+  { id: 18, name: "Drama" },
+  { id: 10751, name: "Family" },
+  { id: 14, name: "Fantasy" },
+  { id: 27, name: "Horror" },
+  { id: 10402, name: "Music" },
+  { id: 9648, name: "Mystery" },
+  { id: 10749, name: "Romance" },
+  { id: 878, name: "Sci-Fi" },
+  { id: 53, name: "Thriller" },
+  { id: 10752, name: "War" },
+];
+
+const TV_GENRES_FALLBACK = [
+  { id: 10759, name: "Action & Adventure" },
+  { id: 16, name: "Animation" },
+  { id: 35, name: "Comedy" },
+  { id: 80, name: "Crime" },
+  { id: 99, name: "Documentary" },
+  { id: 18, name: "Drama" },
+  { id: 10751, name: "Family" },
+  { id: 10762, name: "Kids" },
+  { id: 9648, name: "Mystery" },
+  { id: 10764, name: "Reality" },
+  { id: 10765, name: "Sci-Fi & Fantasy" },
+  { id: 10768, name: "War & Politics" },
+];
+
+const DiscoverFilters: React.FC = () => {
+  const {
+    content,
+    setContent,
+    queryType,
+    setQueryType,
+    genres,
+    setGenres,
+    clearGenres,
+    resetFilters,
+  } = useDiscoverFilters();
+
+  const [isGenreOpen, setIsGenreOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsGenreOpen(false);
+      }
+    };
+    if (isGenreOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isGenreOpen]);
+
+  // Close dropdown on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsGenreOpen(false);
+    };
+    if (isGenreOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isGenreOpen]);
+
+  // Fetch genres from TMDB
+  const { data: genresData } = useQuery({
+    queryKey: ["tmdb-genres", content],
+    queryFn: () => (content === "movie" ? tmdb.genres.movies() : tmdb.genres.tvShows()),
+    staleTime: 1000 * 60 * 60,
+  });
+
+  const availableGenres = useMemo(() => {
+    if (genresData?.genres && genresData.genres.length > 0) {
+      return genresData.genres;
+    }
+    return content === "movie" ? MOVIE_GENRES_FALLBACK : TV_GENRES_FALLBACK;
+  }, [genresData, content]);
+
+  // Selected genre
+  const selectedGenreId = genres && genres.size > 0 ? Array.from(genres)[0] : null;
+  const selectedGenre = availableGenres.find((g) => String(g.id) === selectedGenreId);
+
+  // Quick tabs for sorting/curation
+  const quickTabs = useMemo(() => {
+    if (content === "movie") {
+      return [
+        { key: "todayTrending", label: "Trending" },
+        { key: "popular", label: "Popular" },
+        { key: "topRated", label: "Top Rated" },
+        { key: "nowPlaying", label: "In Theatres" },
+      ];
+    }
+    return [
+      { key: "todayTrending", label: "Trending" },
+      { key: "popular", label: "Popular" },
+      { key: "topRated", label: "Top Rated" },
+      { key: "onTheAir", label: "On The Air" },
+    ];
+  }, [content]);
+
+  const handleSelectGenre = (genreId: number | null) => {
+    if (!genreId) {
+      clearGenres();
+      setQueryType("todayTrending");
+    } else {
+      setGenres(new Set([String(genreId)]));
+      setQueryType("discover");
+    }
+    setIsGenreOpen(false);
+  };
+
+  return (
+    <div className="w-full flex flex-col gap-5">
+      <div>
+        <h1 className="text-3xl font-semibold tracking-tight text-balance text-white sm:text-4xl">
+          New and popular
+        </h1>
+        <p className="mt-2 max-w-xl text-sm text-pretty text-zinc-400">
+          Trending films, series, and genres, refreshed through the day.
+        </p>
+      </div>
+    <div className="sf-glass flex w-full min-w-0 max-w-full flex-col justify-between gap-3 rounded-[1.4rem] p-3 md:flex-row md:items-center md:p-4">
+      {/* Left: Media Toggle + Genre Dropdown */}
+      <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+
+        {/* Media Toggle: Movies vs TV Series */}
+        <div className="sf-chip inline-flex items-center rounded-full p-1">
+          <button
+            type="button"
+            onClick={() => {
+              clearGenres();
+              setQueryType("todayTrending");
+              setContent("movie");
+            }}
+            className={cn(
+              "flex min-h-10 items-center gap-1.5 rounded-full px-3.5 py-1 text-xs font-medium transition-all duration-200 cursor-pointer select-none",
+              content === "movie"
+                ? "bg-white text-black shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                : "text-zinc-300 hover:text-white",
+            )}
+          >
+            <FaFilm size={11} />
+            <span>Movies</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              clearGenres();
+              setQueryType("todayTrending");
+              setContent("tv");
+            }}
+            className={cn(
+              "flex min-h-10 items-center gap-1.5 rounded-full px-3.5 py-1 text-xs font-medium transition-all duration-200 cursor-pointer select-none",
+              content === "tv"
+                ? "bg-white text-black shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                : "text-zinc-300 hover:text-white",
+            )}
+          >
+            <FaTv size={11} />
+            <span>TV</span>
+          </button>
+        </div>
+
+        {/* Netflix-style Genre Dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            type="button"
+            onClick={() => setIsGenreOpen((prev) => !prev)}
+            className={cn(
+              "sf-chip flex min-h-10 items-center gap-2 rounded-full px-3.5 py-1 text-xs font-medium transition-all duration-150 cursor-pointer select-none",
+              selectedGenre
+                ? "bg-white text-black"
+                : "text-zinc-200 hover:text-white",
+            )}
+          >
+            <span>{selectedGenre ? selectedGenre.name : "Genres"}</span>
+            {selectedGenre ? (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSelectGenre(null);
+                }}
+                className="hover:text-red-400 p-0.5 -mr-1"
+                title="Clear genre"
+              >
+                <IoClose size={14} />
+              </span>
+            ) : (
+              <IoChevronDown
+                size={12}
+                className={cn(
+                  "text-zinc-400 transition-transform duration-200",
+                  isGenreOpen && "rotate-180",
+                )}
+              />
+            )}
+          </button>
+
+          {/* Floating Dropdown Menu */}
+          <AnimatePresence>
+            {isGenreOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                transition={{ duration: 0.12 }}
+                className="sf-glass-strong absolute left-0 top-full z-50 mt-2 flex max-h-80 w-[min(18rem,calc(100vw-2.5rem))] flex-col gap-1 overflow-y-auto rounded-[1.2rem] p-2 no-scrollbar"
+              >
+                {/* All Genres option */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectGenre(null)}
+                  className={cn(
+                    "w-full px-2.5 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors flex items-center justify-between cursor-pointer",
+                    !selectedGenre
+                      ? "bg-[#E50914] text-white"
+                      : "text-zinc-300 hover:text-white hover:bg-white/10",
+                  )}
+                >
+                  <span>All Genres</span>
+                  {!selectedGenre && <IoCheckmark size={14} />}
+                </button>
+
+                <div className="w-full h-px bg-white/10 my-0.5" />
+
+                {/* Grid of Genres */}
+                <div className="grid grid-cols-2 gap-1">
+                  {availableGenres.map((g) => {
+                    const isSelected = String(g.id) === selectedGenreId;
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => handleSelectGenre(g.id)}
+                        className={cn(
+                          "px-2 py-1.5 rounded-md text-xs font-medium text-left transition-colors flex items-center justify-between gap-1 cursor-pointer",
+                          isSelected
+                            ? "bg-[#E50914] text-white font-semibold"
+                            : "text-zinc-300 hover:text-white hover:bg-white/10",
+                        )}
+                      >
+                        <span className="min-w-0 truncate">{g.name}</span>
+                        {isSelected && <IoCheckmark size={12} className="shrink-0 ml-1" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      {/* Right: Clean Quick Tabs (Trending, Popular, Top Rated, etc.) */}
+      <div className="-mx-1 flex min-w-0 max-w-full items-center gap-1 overflow-x-auto overscroll-x-contain px-1 py-0.5 no-scrollbar">
+        {quickTabs.map((tab) => {
+          const isSelected = queryType === tab.key && !selectedGenre;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => {
+                clearGenres();
+                setQueryType(tab.key as any);
+              }}
+              className={cn(
+                "min-h-10 rounded-full px-3.5 py-1 text-xs font-medium whitespace-nowrap transition-all duration-150 cursor-pointer select-none",
+                isSelected
+                  ? "bg-white font-semibold text-black shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                  : "sf-chip text-zinc-200 hover:bg-white/16 hover:text-white",
+              )}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+    </div>
+  );
+};
+
+export default DiscoverFilters;

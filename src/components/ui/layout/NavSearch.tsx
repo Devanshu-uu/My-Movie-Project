@@ -1,0 +1,394 @@
+"use client";
+
+import { searchTitles } from "@/actions/lists";
+import { CatalogSuggestionItem } from "@/types";
+import { cn } from "@/utils/helpers";
+import { getImageUrl } from "@/utils/movies";
+import { useClickOutside, useDebouncedValue } from "@mantine/hooks";
+import { AnimatePresence, motion } from "framer-motion";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FaPlay } from "react-icons/fa6";
+import { IoClose, IoInformationCircleOutline, IoSearchOutline } from "react-icons/io5";
+
+export type SearchResultItem = CatalogSuggestionItem;
+
+const NavSearch = () => {
+  const router = useRouter();
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery] = useDebouncedValue(query, 250);
+  const [activeFilter, setActiveFilter] = useState<"all" | "movie" | "tv">("all");
+  const [results, setResults] = useState<SearchResultItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleClose = useCallback(() => {
+    setIsOpen(false);
+    setQuery("");
+    setResults([]);
+    setSearchError(null);
+  }, []);
+
+  // Click outside listener closes the search bar and floating list
+  const containerRef = useClickOutside(() => {
+    if (isOpen) handleClose();
+  });
+
+  // Focus input when opened
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [isOpen]);
+
+  // Global ESC key and Ctrl+K listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isOpen) {
+        handleClose();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, handleClose]);
+
+  // Fetch search results whenever debouncedQuery changes
+  useEffect(() => {
+    const trimmed = debouncedQuery.trim();
+    if (!trimmed) {
+      setResults([]);
+      setIsLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoading(true);
+
+    const searchCatalog = async () => {
+      try {
+        // Real TMDB search, executed by a server action (no client side token).
+        const response = await searchTitles({ query: trimmed, limit: 10 });
+
+        if (!isMounted) return;
+
+        if (!response.ok) {
+          console.warn("TMDB search failed:", response.message);
+          setResults([]);
+          setSearchError(response.message);
+          return;
+        }
+
+        setSearchError(null);
+        setResults(response.data);
+      } catch (err) {
+        console.warn("TMDB search error:", err);
+        if (!isMounted) return;
+        setResults([]);
+        setSearchError("Search is temporarily unavailable.");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    searchCatalog();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [debouncedQuery]);
+
+  // Filter results by active tab
+  const filteredResults = useMemo(() => {
+    if (activeFilter === "all") return results;
+    return results.filter((item) => item.media_type === activeFilter);
+  }, [results, activeFilter]);
+
+  // Floating window ONLY opens when user has typed something
+  const showDropdown = isOpen && query.trim().length > 0;
+
+  return (
+    <div className="relative" ref={containerRef}>
+      {/* Navbar Search Trigger & Expanding Input */}
+      <div className="flex items-center">
+        <AnimatePresence mode="wait" initial={false}>
+          {!isOpen ? (
+            <motion.button
+              key="search-trigger"
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.85 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              type="button"
+              onClick={() => setIsOpen(true)}
+              aria-label="Search titles, actors, genres"
+              className="sf-chip flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-full px-2.5 py-1.5 text-white/85 transition hover:bg-white/16 hover:text-white group"
+            >
+              <IoSearchOutline size={18} className="transition-transform duration-200 group-hover:scale-110" />
+              <span className="hidden text-xs font-medium text-white/70 md:inline">Search</span>
+              <kbd className="hidden rounded border border-white/10 bg-black/40 px-1.5 py-0.5 text-[10px] font-semibold text-white/45 lg:inline">
+                Ctrl K
+              </kbd>
+            </motion.button>
+          ) : (
+            <motion.div
+              key="search-input-box"
+              initial={{ width: 40, opacity: 0, scale: 0.95 }}
+              animate={{ width: "auto", opacity: 1, scale: 1 }}
+              exit={{ width: 40, opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 420, damping: 30 }}
+              className="sf-glass-strong flex w-[min(34vw,11rem)] origin-right items-center rounded-full px-2.5 py-1 focus-within:ring-1 focus-within:ring-white/40 min-[420px]:w-44 sm:w-52 md:w-56"
+            >
+              <IoSearchOutline size={15} className="text-gray-300 shrink-0 mr-1.5" />
+              <input
+                ref={inputRef}
+                id="nav-search"
+                name="q"
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Titles, people, genres…"
+                aria-label="Search titles, people, and genres"
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full bg-transparent text-xs text-white placeholder-gray-400 focus-visible:outline-none sm:text-sm"
+              />
+              <AnimatePresence>
+                {query && (
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ duration: 0.15 }}
+                    type="button"
+                    onClick={() => {
+                      setQuery("");
+                      inputRef.current?.focus();
+                    }}
+                    className="text-gray-400 hover:text-white p-0.5 shrink-0 transition-colors cursor-pointer mr-0.5"
+                    aria-label="Clear search"
+                  >
+                    <IoClose size={15} />
+                  </motion.button>
+                )}
+              </AnimatePresence>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="text-gray-400 hover:text-white p-0.5 shrink-0 transition-colors cursor-pointer border-l border-white/20 pl-1 ml-0.5"
+                aria-label="Close search"
+                title="Close (Esc)"
+              >
+                <IoClose size={15} />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Floating Search Results Dropdown List - ONLY Opens When User Has Typed */}
+      <AnimatePresence>
+        {showDropdown && (
+          <motion.div
+            key="floating-search-card"
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="sf-glass-strong fixed inset-x-3 top-[calc(env(safe-area-inset-top)+4.7rem)] z-[70] flex max-h-[min(70dvh,28rem)] w-auto max-w-none flex-col overflow-hidden rounded-[1.35rem] text-white sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-2 sm:max-h-none sm:w-[400px]"
+          >
+            {/* Header: Category Filter Pills & Results Count */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-black/25 px-3.5 py-2.5">
+              <div className="flex items-center gap-1.5">
+                {(["all", "movie", "tv"] as const).map((filter) => {
+                  const isActive = activeFilter === filter;
+                  const label = filter === "all" ? "All" : filter === "movie" ? "Movies" : "TV Series";
+                  return (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setActiveFilter(filter)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-full text-xs font-semibold transition-all duration-150 cursor-pointer",
+                        isActive
+                          ? "bg-white text-black"
+                          : "sf-chip text-gray-200 hover:bg-white/20 hover:text-white",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <span className="text-[11px] text-gray-400">
+                {isLoading ? (
+                  "Searching..."
+                ) : (
+                  <span>
+                    <strong className="text-white">{filteredResults.length}</strong> results
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {/* Scrollable Floating Results List */}
+            <div className="max-h-[360px] sm:max-h-[400px] overflow-y-auto divide-y divide-white/5 p-1.5">
+              {/* Loading State */}
+              {isLoading && (
+                <div className="flex flex-col gap-2 p-2">
+                  {Array.from({ length: 4 }).map((_, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-3 p-2 rounded-lg bg-white/5 animate-pulse"
+                    >
+                      <div className="w-11 h-15 rounded-xs bg-white/10 shrink-0" />
+                      <div className="flex flex-col gap-2 flex-1">
+                        <div className="h-3.5 w-3/4 bg-white/10 rounded-xs" />
+                        <div className="h-2.5 w-1/3 bg-white/10 rounded-xs" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Results Found */}
+              {!isLoading && filteredResults.length > 0 && (
+                <div className="flex flex-col gap-1 p-1">
+                  {filteredResults.map((item) => (
+                    <FloatingListItem
+                      key={`res-row-${item.media_type}-${item.id}`}
+                      item={item}
+                      onClose={handleClose}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* No Results Found */}
+              {!isLoading && filteredResults.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
+                  <IoSearchOutline size={30} className="text-gray-500" />
+                  {searchError ? (
+                    <>
+                      <p className="text-sm font-bold text-white">Search is unavailable</p>
+                      <p className="text-xs text-gray-400">{searchError}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-bold text-white">
+                        No results found for &ldquo;{query}&rdquo;
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        Try checking for spelling or search for another movie or series.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Floating Card Footer */}
+            <div className="px-3.5 py-1.5 bg-black/50 border-t border-white/5 flex items-center justify-between text-[10px] text-gray-400">
+              <span>Click title to view or ▶ to play</span>
+              <span>ESC to close</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+interface FloatingListItemProps {
+  item: SearchResultItem;
+  onClose: () => void;
+}
+
+const FloatingListItem: React.FC<FloatingListItemProps> = ({ item, onClose }) => {
+  const isTv = item.media_type === "tv";
+  const detailHref = isTv ? `/tv/${item.id}` : `/movie/${item.id}`;
+  const playHref = isTv ? `/watch/tv/${item.id}/1/1` : `/watch/movie/${item.id}`;
+  const posterUrl = item.poster_path
+    ? getImageUrl(item.poster_path, "poster")
+    : item.backdrop_path
+    ? getImageUrl(item.backdrop_path, "backdrop")
+    : null;
+  const releaseYear = item.release_date ? new Date(item.release_date).getFullYear() : null;
+  const rating = item.vote_average ? item.vote_average.toFixed(1) : "8.2";
+
+  return (
+    <div className="group flex items-center justify-between gap-3 p-2 hover:bg-white/10 rounded-lg transition-colors cursor-pointer">
+      {/* Clickable Info Area */}
+      <Link href={detailHref} onClick={onClose} className="flex items-center gap-3 flex-1 min-w-0">
+        {/* Poster Thumbnail */}
+        {posterUrl ? (
+          <img
+            src={posterUrl}
+            alt={item.title}
+            className="w-9 h-13 rounded-xs object-cover bg-[#222] shrink-0 border border-white/10 group-hover:border-white/30 transition-colors"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-9 h-13 rounded-xs bg-[#222] shrink-0 flex items-center justify-center text-[9px] text-gray-500 font-bold border border-white/10">
+            {isTv ? "TV" : "MOVIE"}
+          </div>
+        )}
+
+        {/* Text Content */}
+        <div className="flex flex-col min-w-0 gap-0.5">
+          <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-[#E50914] transition-colors truncate">
+            {item.title}
+          </h4>
+
+          <div className="flex items-center gap-2 text-[11px] text-gray-300">
+            <span className="bg-[#E50914] text-white text-[9px] font-black uppercase px-1 py-0.5 rounded-xs tracking-wider">
+              {isTv ? "SERIES" : "MOVIE"}
+            </span>
+            {releaseYear && <span>{releaseYear}</span>}
+            <span className="text-[#46D369] font-semibold">★ {rating}</span>
+          </div>
+
+          {item.overview && (
+            <p className="text-[11px] text-gray-400 line-clamp-1">
+              {item.overview}
+            </p>
+          )}
+        </div>
+      </Link>
+
+      {/* Quick Action Buttons */}
+      <div className="flex items-center gap-1.5 shrink-0 pl-1">
+        <Link
+          href={playHref}
+          onClick={onClose}
+          className="flex items-center justify-center size-7 rounded-full bg-white hover:bg-white/80 text-black transition-colors shadow-xs active:scale-95"
+          title="Play Now"
+          aria-label={`Play ${item.title}`}
+        >
+          <FaPlay className="text-[10px] ml-0.5" />
+        </Link>
+
+        <Link
+          href={detailHref}
+          onClick={onClose}
+          className="flex items-center justify-center size-7 rounded-full bg-white/10 hover:bg-white/20 text-gray-200 hover:text-white transition-colors border border-white/10 active:scale-95"
+          title="More Info"
+          aria-label={`Info for ${item.title}`}
+        >
+          <IoInformationCircleOutline size={17} />
+        </Link>
+      </div>
+    </div>
+  );
+};
+
+export default NavSearch;

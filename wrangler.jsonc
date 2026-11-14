@@ -1,0 +1,33 @@
+{
+  // Secrets (TMDB_ACCESS_TOKEN and optional MOBILE_API_KEY) belong in Worker
+  // secrets or an untracked .dev.vars file, never in the plaintext vars below.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "snapflix",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-10-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "keep_names": false,
+  "build": {
+    "command": "npm run build:worker"
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "snapflix.indevs.in",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "NEXT_PUBLIC_GATEWAY_URL": "https://api.snapflix.indevs.in",
+    "NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION": "atlIepm5DvSugRHSudy3EebPGch2CztkA_0MghNMTHY",
+    "NEXT_PUBLIC_GA_MEASUREMENT_ID": "G-5E6KQ2LRZ3"
+  },
+  "previews": {}
+}
