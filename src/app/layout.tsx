@@ -12,6 +12,7 @@ import { cn } from "@/utils/helpers";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Suspense } from "react";
 import Script from "next/script";
+import { Analytics } from "@vercel/analytics/next";
 
 const GOOGLE_VERIFICATION =
   process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || "atlIepm5DvSugRHSudy3EebPGch2CztkA_0MghNMTHY";
@@ -125,6 +126,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </Providers>
           </NuqsAdapter>
         </Suspense>
+        <Analytics />
       </body>
     </html>
   );
