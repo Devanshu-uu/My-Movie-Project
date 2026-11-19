@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  getBlockbusterActionRow,
+  getHindiRow,
+  getIndianActionRow,
+  getNewOnDevaMoviesRow,
+  getSouthIndianRow,
+} from "@/actions/lists";
 import ContentTypeSelection from "@/components/ui/other/ContentTypeSelection";
 import PopcornTvLoader from "@/components/ui/other/PopcornTvLoader";
 import { siteConfig } from "@/config/site";
@@ -9,6 +16,7 @@ import { Suspense } from "react";
 
 const MovieHomeList = dynamic(() => import("@/components/sections/Movie/HomeList"));
 const TvShowHomeList = dynamic(() => import("@/components/sections/TV/HomeList"));
+const ShowcaseRow = dynamic(() => import("@/components/sections/Home/ShowcaseRow"));
 const Top10Row = dynamic(() => import("@/components/sections/Home/Top10Row"));
 
 const HomePageList: React.FC = () => {
@@ -37,6 +45,13 @@ const HomePageList: React.FC = () => {
             <>
               {/* Row 1: Trending */}
               {movies.length > 0 && <MovieHomeList key={movies[0].name} {...movies[0]} />}
+
+              {/* Landscape showcase rows (mixed movies + TV) */}
+              <ShowcaseRow title="New on DevaMovies" query={getNewOnDevaMoviesRow} />
+              <ShowcaseRow title="Blockbuster Action & Adventure" query={getBlockbusterActionRow} />
+              <ShowcaseRow title="Hindi Movies & TV" query={getHindiRow} />
+              <ShowcaseRow title="South Indian Cinema" query={getSouthIndianRow} />
+              <ShowcaseRow title="Indian Action & Adventure" query={getIndianActionRow} />
 
               {/* Netflix Signature Top 10 Row */}
               <Top10Row contentType="movie" />

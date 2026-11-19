@@ -2,6 +2,7 @@
 
 import { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
+import { headers } from "next/headers";
 import {
   ForgotPasswordFormInput,
   ForgotPasswordFormSchema,
@@ -14,6 +15,22 @@ import {
 } from "@/schemas/auth";
 import { z } from "zod";
 import { ActionResponse } from "@/types";
+import { clientKeyFromHeaders, createRateLimiter } from "@/lib/mobile/rate-limit";
+import { verifyTurnstileToken } from "@/lib/turnstile";
+
+const signUpRateLimiter = createRateLimiter({
+  limit: 5,
+  windowMs: 10 * 60_000,
+  maxKeys: 4096,
+});
+
+const passwordResetRateLimiter = createRateLimiter({
+  limit: 5,
+  windowMs: 10 * 60_000,
+  maxKeys: 4096,
+});
+
+const getRequestIdentity = async () => clientKeyFromHeaders(await headers());
 
 /**
  * A generic type for our authentication actions.
@@ -85,6 +102,16 @@ const signInWithEmailAction: AuthAction<LoginFormInput> = async (data, supabase)
 };
 
 const signUpAction: AuthAction<RegisterFormInput> = async (data, supabase) => {
+  const identity = await getRequestIdentity();
+  const rateLimit = signUpRateLimiter.consume(identity);
+
+  if (!rateLimit.allowed) {
+    return {
+      success: false,
+      message: "Too many sign-up attempts. Please wait a few minutes and try again.",
+    };
+  }
+
   // Check username availability
   const { data: usernameExists, error: usernameError } = await supabase
     .from("profiles")
@@ -99,6 +126,14 @@ const signUpAction: AuthAction<RegisterFormInput> = async (data, supabase) => {
 
   if (usernameExists) {
     return { success: false, message: "Username already taken." };
+  }
+
+  // This action creates accounts with the service-role key, so a client-side
+  // captcha alone is not enough: verify the token here before creating a user.
+  const captcha = await verifyTurnstileToken(data.captchaToken, identity);
+
+  if (captcha.enforced && !captcha.ok) {
+    return { success: false, message: captcha.message };
   }
 
   // Create user directly using admin API (bypasses Supabase SMTP rate limits and auto-confirms user)
@@ -145,6 +180,15 @@ const sendResetPasswordEmailAction: AuthAction<ForgotPasswordFormInput> = async 
   data,
   supabase,
 ) => {
+  const rateLimit = passwordResetRateLimiter.consume(await getRequestIdentity());
+
+  if (!rateLimit.allowed) {
+    return {
+      success: false,
+      message: "Too many password reset requests. Please wait a few minutes and try again.",
+    };
+  }
+
   const { error } = await supabase.auth.resetPasswordForEmail(
     data.email,
     data.captchaToken ? { captchaToken: data.captchaToken } : undefined,

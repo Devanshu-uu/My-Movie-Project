@@ -4,11 +4,16 @@ import { addToast, Button, Divider, Input, Link } from "@heroui/react";
 import { AuthFormProps } from "./Forms";
 import { RegisterFormSchema } from "@/schemas/auth";
 import PasswordInput from "@/components/ui/input/PasswordInput";
+import CaptchaField from "@/components/ui/input/CaptchaField";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
+import { useState } from "react";
 import GoogleLoginButton from "@/components/ui/button/GoogleLoginButton";
 
 const AuthRegisterForm: React.FC<AuthFormProps> = ({ setForm }) => {
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
+
   const {
     watch,
     register,
@@ -26,7 +31,7 @@ const AuthRegisterForm: React.FC<AuthFormProps> = ({ setForm }) => {
   });
 
   const onSubmit = handleSubmit(async (data) => {
-    const { success, message } = await signUp(data);
+    const { success, message } = await signUp({ ...data, captchaToken: captchaToken ?? "" });
 
     addToast({
       title: message,
@@ -36,6 +41,9 @@ const AuthRegisterForm: React.FC<AuthFormProps> = ({ setForm }) => {
 
     if (success) {
       setForm("login");
+    } else {
+      setCaptchaToken(null);
+      setCaptchaKey((key) => key + 1);
     }
   });
 
@@ -91,6 +99,7 @@ const AuthRegisterForm: React.FC<AuthFormProps> = ({ setForm }) => {
           startContent={<LockPassword className="text-xl" />}
           isDisabled={isSubmitting}
         />
+        <CaptchaField key={captchaKey} onToken={setCaptchaToken} />
         <Button
           className="mt-3 w-full"
           color="primary"

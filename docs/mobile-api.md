@@ -455,7 +455,7 @@ In **Caching → Cache Rules**, create a rule scoped only to paths starting with
 - Status code: `200` only.
 
 Do **not** apply a site-wide "Cache Everything" rule. In particular, keep
-`/api/provider/*`, auth routes and playback routes out of this rule. Disable or
+`/api/subtitles/*`, auth routes and playback routes out of this rule. Disable or
 bypass this rule when `MOBILE_API_KEY` is enabled.
 
 ### 4. Global rate limiting / WAF for native apps

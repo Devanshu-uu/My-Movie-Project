@@ -4,6 +4,7 @@ import { tmdbFetchList } from "@/api/tmdb-server";
 import {
   CatalogList,
   CatalogListResponse,
+  CatalogSuggestionItem,
   ContentType,
   MovieListType,
   TrendingWindow,
@@ -95,6 +96,234 @@ export async function getTrendingTvShows({
   page?: number;
 }): Promise<CatalogListResponse<TV>> {
   return tmdbFetchList<TV>(`/trending/tv/${timeWindow}`, { page: normalizePage(page) }, REVALIDATE);
+}
+
+const SHOWCASE_LIMIT = 20;
+
+const todayIsoDate = (): string => new Date().toISOString().slice(0, 10);
+
+const isoDateDaysAgo = (days: number): string =>
+  new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+
+type ShowcaseParams = Record<string, string | number | boolean>;
+
+interface ShowcaseQueryOptions {
+  movieParams: ShowcaseParams;
+  tvParams?: ShowcaseParams;
+  order?: "date" | "interleave";
+}
+
+const toShowcaseMovie = (movie: Movie): CatalogSuggestionItem => ({
+  id: movie.id,
+  title: movie.title || movie.original_title || "Untitled",
+  poster_path: movie.poster_path ?? null,
+  backdrop_path: movie.backdrop_path ?? null,
+  release_date: movie.release_date ?? "",
+  vote_average: movie.vote_average ?? 0,
+  overview: movie.overview ?? "",
+  media_type: "movie",
+});
+
+const toShowcaseTv = (tv: TV): CatalogSuggestionItem => ({
+  id: tv.id,
+  title: tv.name || tv.original_name || "Untitled",
+  poster_path: tv.poster_path ?? null,
+  backdrop_path: tv.backdrop_path ?? null,
+  release_date: tv.first_air_date ?? "",
+  vote_average: tv.vote_average ?? 0,
+  overview: tv.overview ?? "",
+  media_type: "tv",
+});
+
+/**
+ * Builds a single movie + TV row for the home showcase (landscape cards).
+ * A failed side is skipped so one TMDB outage does not blank the whole row.
+ */
+async function fetchShowcase({
+  movieParams,
+  tvParams,
+  order = "interleave",
+}: ShowcaseQueryOptions): Promise<CatalogListResponse<CatalogSuggestionItem>> {
+  const [movieResponse, tvResponse] = await Promise.all([
+    tmdbFetchList<Movie>("/discover/movie", { page: 1, include_adult: false, ...movieParams }, REVALIDATE),
+    tvParams
+      ? tmdbFetchList<TV>("/discover/tv", { page: 1, include_adult: false, ...tvParams }, REVALIDATE)
+      : Promise.resolve(null),
+  ]);
+
+  if (!movieResponse.ok && (!tvResponse || !tvResponse.ok)) {
+    return movieResponse;
+  }
+
+  const movieItems = movieResponse.ok ? movieResponse.data.results.map(toShowcaseMovie) : [];
+  const tvItems = tvResponse?.ok ? tvResponse.data.results.map(toShowcaseTv) : [];
+
+  const seen = new Set<string>();
+  const merged: CatalogSuggestionItem[] = [];
+  const push = (item: CatalogSuggestionItem | undefined) => {
+    if (!item) return;
+    const key = `${item.media_type}:${item.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  };
+
+  if (order === "date") {
+    [...movieItems, ...tvItems]
+      .sort((a, b) => (b.release_date || "").localeCompare(a.release_date || ""))
+      .forEach(push);
+  } else {
+    const maxLength = Math.max(movieItems.length, tvItems.length);
+    for (let index = 0; index < maxLength; index++) {
+      push(movieItems[index]);
+      push(tvItems[index]);
+    }
+  }
+
+  return {
+    ok: true,
+    data: {
+      page: 1,
+      results: merged.slice(0, SHOWCASE_LIMIT),
+      total_pages: 1,
+      total_results: merged.length,
+    },
+  };
+}
+
+/** Recently released titles available on Netflix India. */
+export async function getNewOnDevaMoviesRow(): Promise<
+  CatalogListResponse<CatalogSuggestionItem>
+> {
+  const recent = isoDateDaysAgo(180);
+  const today = todayIsoDate();
+  const provider = {
+    with_watch_providers: 8,
+    watch_region: "IN",
+    with_watch_monetization_types: "flatrate",
+  };
+
+  const withProvider = await fetchShowcase({
+    movieParams: {
+      ...provider,
+      sort_by: "primary_release_date.desc",
+      "primary_release_date.gte": recent,
+      "primary_release_date.lte": today,
+      "vote_count.gte": 5,
+    },
+    tvParams: {
+      ...provider,
+      sort_by: "first_air_date.desc",
+      "first_air_date.gte": recent,
+      "first_air_date.lte": today,
+      "vote_count.gte": 5,
+    },
+    order: "date",
+  });
+
+  if (!withProvider.ok || withProvider.data.results.length > 0) return withProvider;
+
+  // TMDB has no provider data for some regions; fall back to recent releases.
+  return fetchShowcase({
+    movieParams: {
+      sort_by: "primary_release_date.desc",
+      "primary_release_date.gte": recent,
+      "primary_release_date.lte": today,
+      "vote_count.gte": 20,
+    },
+    tvParams: {
+      sort_by: "first_air_date.desc",
+      "first_air_date.gte": recent,
+      "first_air_date.lte": today,
+      "vote_count.gte": 20,
+    },
+    order: "date",
+  });
+}
+
+/** High-vote action/adventure movies and TV shows. */
+export async function getBlockbusterActionRow(): Promise<
+  CatalogListResponse<CatalogSuggestionItem>
+> {
+  const recent = isoDateDaysAgo(365 * 5);
+
+  return fetchShowcase({
+    movieParams: {
+      sort_by: "popularity.desc",
+      with_genres: "28|12",
+      "vote_count.gte": 1000,
+      "primary_release_date.gte": recent,
+      "primary_release_date.lte": todayIsoDate(),
+    },
+    tvParams: {
+      sort_by: "popularity.desc",
+      with_genres: "10759",
+      "vote_count.gte": 500,
+      "first_air_date.gte": recent,
+      "first_air_date.lte": todayIsoDate(),
+    },
+  });
+}
+
+/** Newest Hindi-language movies and shows. */
+export async function getHindiRow(): Promise<CatalogListResponse<CatalogSuggestionItem>> {
+  return fetchShowcase({
+    movieParams: {
+      sort_by: "primary_release_date.desc",
+      with_original_language: "hi",
+      "vote_count.gte": 20,
+      "primary_release_date.lte": todayIsoDate(),
+    },
+    tvParams: {
+      sort_by: "first_air_date.desc",
+      with_original_language: "hi",
+      "vote_count.gte": 20,
+      "first_air_date.lte": todayIsoDate(),
+    },
+    order: "interleave",
+  });
+}
+
+/** Newest Tamil, Telugu, Malayalam and Kannada movies and shows. */
+export async function getSouthIndianRow(): Promise<CatalogListResponse<CatalogSuggestionItem>> {
+  return fetchShowcase({
+    movieParams: {
+      sort_by: "primary_release_date.desc",
+      with_original_language: "ta|te|ml|kn",
+      "vote_count.gte": 20,
+      "primary_release_date.lte": todayIsoDate(),
+    },
+    tvParams: {
+      sort_by: "first_air_date.desc",
+      with_original_language: "ta|te|ml|kn",
+      "vote_count.gte": 20,
+      "first_air_date.lte": todayIsoDate(),
+    },
+    order: "interleave",
+  });
+}
+
+/** Indian action/adventure movies and shows. */
+export async function getIndianActionRow(): Promise<CatalogListResponse<CatalogSuggestionItem>> {
+  const recent = isoDateDaysAgo(365 * 5);
+
+  return fetchShowcase({
+    movieParams: {
+      sort_by: "popularity.desc",
+      with_origin_country: "IN",
+      with_genres: "28|12",
+      "vote_count.gte": 100,
+      "primary_release_date.gte": recent,
+      "primary_release_date.lte": todayIsoDate(),
+    },
+    tvParams: {
+      sort_by: "popularity.desc",
+      with_origin_country: "IN",
+      with_genres: "10759",
+      "vote_count.gte": 100,
+      "first_air_date.lte": todayIsoDate(),
+    },
+  });
 }
 
 /**

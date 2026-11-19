@@ -4,3 +4,6 @@ NEXTJS_ENV=development
 # Never commit secrets. The mobile metadata API reads only TMDB_ACCESS_TOKEN.
 # TMDB_ACCESS_TOKEN=<local-value-only>
 # MOBILE_API_KEY=<optional-local-app-key>
+# TURNSTILE_SECRET_KEY=<cloudflare-turnstile-secret>
+# Set NEXT_PUBLIC_CAPTCHA_SITE_KEY (public) alongside the secret to enable
+# server-side sign-up captcha verification.

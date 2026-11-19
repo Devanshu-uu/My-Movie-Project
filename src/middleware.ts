@@ -16,6 +16,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // These proxies are public and never read the session. Skipping the Supabase
+  // refresh keeps them fast and avoids Set-Cookie on cacheable responses.
+  if (
+    request.nextUrl.pathname.startsWith("/api/tmdb/") ||
+    request.nextUrl.pathname.startsWith("/api/subtitles/")
+  ) {
+    return NextResponse.next();
+  }
+
   return await updateSession(request);
 }
 

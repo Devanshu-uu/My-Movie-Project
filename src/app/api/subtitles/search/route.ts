@@ -1,15 +1,72 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { clientKeyFromHeaders, createRateLimiter } from '@/lib/mobile/rate-limit';
+
+const MAX_QUERY_LENGTH = 200;
+const MAX_RESULTS = 50;
+const FETCH_TIMEOUT_MS = 8_000;
+
+const searchRateLimiter = createRateLimiter({
+  limit: 30,
+  windowMs: 60_000,
+  maxKeys: 2048,
+});
+
+function normalizeImdbId(value: string): string | null {
+  const cleaned = value.trim().replace(/^tt/i, '');
+  return /^\d{1,10}$/.test(cleaned) ? cleaned : null;
+}
+
+function normalizeNumericParam(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return /^\d{1,4}$/.test(trimmed) ? trimmed : null;
+}
+
+function normalizeLanguage(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+  return /^[a-z]{2,3}(,[a-z]{2,3})*$/.test(trimmed) ? trimmed : null;
+}
+
+function errorResponse(status: number, message: string, headers?: Record<string, string>) {
+  return NextResponse.json(
+    { success: false, results: [], message },
+    {
+      status,
+      headers: {
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        ...headers,
+      },
+    },
+  );
+}
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const query = searchParams.get('query') || '';
-  const imdbId = searchParams.get('imdbId') || '';
-  const season = searchParams.get('season');
-  const episode = searchParams.get('episode');
-  const subLanguageId = searchParams.get('lang') || '';
+  const rateLimit = searchRateLimiter.consume(clientKeyFromHeaders(request.headers));
 
-  if (!query && !imdbId) {
-    return NextResponse.json({ success: false, message: 'Missing query or imdbId' }, { status: 400 });
+  if (!rateLimit.allowed) {
+    return errorResponse(429, 'Too many subtitle searches. Please try again shortly.', {
+      'Retry-After': String(rateLimit.retryAfterSeconds),
+      'X-RateLimit-Limit': String(rateLimit.limit),
+      'X-RateLimit-Remaining': String(rateLimit.remaining),
+    });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const query = (searchParams.get('query') || '').trim().slice(0, MAX_QUERY_LENGTH);
+  const rawImdbId = (searchParams.get('imdbId') || '').trim();
+  const season = normalizeNumericParam(searchParams.get('season'));
+  const episode = normalizeNumericParam(searchParams.get('episode'));
+  const subLanguageId = normalizeLanguage(searchParams.get('lang') || '');
+
+  if (!query && !rawImdbId) {
+    return errorResponse(400, 'Missing query or imdbId');
+  }
+
+  const imdbId = rawImdbId ? normalizeImdbId(rawImdbId) : null;
+
+  if (rawImdbId && !imdbId) {
+    return errorResponse(400, 'Invalid imdbId');
   }
 
   try {
@@ -18,8 +75,7 @@ export async function GET(request: NextRequest) {
     if (episode) endpoint += `/episode-${episode}`;
 
     if (imdbId) {
-      const cleanImdb = imdbId.replace('tt', '');
-      endpoint += `/imdbid-${cleanImdb}`;
+      endpoint += `/imdbid-${imdbId}`;
     } else if (query) {
       endpoint += `/query-${encodeURIComponent(query.toLowerCase())}`;
     }
@@ -27,23 +83,25 @@ export async function GET(request: NextRequest) {
     if (season) endpoint += `/season-${season}`;
     if (subLanguageId) endpoint += `/sublanguageid-${subLanguageId}`;
 
-    const res = await fetch(endpoint, {
+    const response = await fetch(endpoint, {
       headers: {
         'x-user-agent': 'VLSub 0.10.2',
         'User-Agent': 'VLSub 0.10.2',
       },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
-    if (!res.ok) {
-      return NextResponse.json({ success: false, results: [] });
+    if (!response.ok) {
+      return errorResponse(502, 'Subtitle search is unavailable');
     }
 
-    const data = await res.json();
+    const data = await response.json();
     if (!Array.isArray(data)) {
-      return NextResponse.json({ success: true, results: [] });
+      return NextResponse.json({ success: true, count: 0, results: [] });
     }
 
-    const results = data.map((item: any) => ({
+    const results = data.slice(0, MAX_RESULTS).map((item: any) => ({
       id: item.IDSubtitleFile || item.IDSubtitle,
       title: item.SubFileName || item.MovieReleaseName || item.LanguageName,
       language: item.LanguageName || item.SubLanguageID,
@@ -58,8 +116,8 @@ export async function GET(request: NextRequest) {
       count: results.length,
       results,
     });
-  } catch (err: any) {
-    console.error('[Subtitle Search] Error:', err);
-    return NextResponse.json({ success: false, results: [], error: err?.message }, { status: 500 });
+  } catch (error) {
+    console.error('[Subtitle Search] Error:', error);
+    return errorResponse(502, 'Subtitle search is unavailable');
   }
 }
